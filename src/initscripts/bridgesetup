@@ -1,0 +1,77 @@
+#!/bin/sh
+
+########################################################################
+# Begin $rc_base/init.d/nicrename
+#
+# Description : Bridge Setup Script
+#
+# Authors     : Florian Bührle <erdlof@protonmail.com>
+#
+# Version     : 01.00
+#
+# Notes       : Written for IPFire by its team
+#
+########################################################################
+
+. /etc/sysconfig/rc
+. ${rc_functions}
+
+eval $(/usr/local/bin/readhash /var/ipfire/ethernet/settings)
+
+DO="${1}"
+
+ZONES="GREEN RED ORANGE BLUE"
+
+case "${DO}" in
+	start)
+		for zone in ${ZONES}; do
+            devname="${zone}_DEV"
+            devname=${!devname}
+
+            [ -n "$devname" ] || continue
+
+            [ -e "/sys/class/net/$devname" ] && {
+                boot_mesg "Bridge device $devname already exists, bringing it up anyway..."
+            } || {
+                boot_mesg "Creating virtual bridge device $devname..."
+                ip link add name $devname type bridge
+            }
+
+            ip link set $devname up
+
+            boot_mesg "Bridge $devname is up."
+            echo_ok
+        done
+
+        exit 0
+		;;
+
+	stop)
+        interfaces=$(ls "/sys/class/net/")
+
+        for int in ${interfaces}; do
+            [ -d "/sys/class/net/$int/bridge" ] || continue
+
+            boot_mesg "Bringing down bridge device $int"
+
+            ip link set $int down
+
+            boot_mesg "Bridge device $int is down."
+            echo_ok
+            
+            boot_mesg "Deleting bridge device $int..."
+
+            ip link delete $int
+
+            boot_mesg "Deleted bridge device $int."
+            echo_ok
+        done
+
+		exit 0
+		;;
+
+	*)
+		echo "Usage: ${0} {start|stop}"
+		exit 1
+		;;
+esac

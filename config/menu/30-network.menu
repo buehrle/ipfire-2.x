@@ -3,6 +3,11 @@
 			        'title' => "$Lang::tr{'net config'}",
 			        'enabled' => 0,
 			        };
+	$subnetwork->{'11.vlans'} = {'caption' => "VLAN Configuration",
+					'uri' => '/cgi-bin/vlans.cgi',
+					'title' => "VLAN Configuration",
+					'enabled' => 1,
+					};
     $subnetwork->{'20.proxy'} = {'caption' => "$Lang::tr{'web proxy'}",
 			        'uri' => '/cgi-bin/proxy.cgi',
 			        'title' => "$Lang::tr{'web proxy'}",

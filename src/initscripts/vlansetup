@@ -1,0 +1,158 @@
+#!/bin/sh
+
+########################################################################
+# Begin $rc_base/init.d/nicrename
+#
+# Description : VLAN Setup Script
+#
+# Authors     : Florian Bührle <erdlof@protonmail.com>
+#
+# Version     : 01.00
+#
+# Notes       : Written for IPFire by its team
+#
+########################################################################
+
+. /etc/sysconfig/rc
+. ${rc_functions}
+
+eval $(/usr/local/bin/readhash /var/ipfire/ethernet/settings)
+
+DO="${1}"
+
+ZONES="GREEN RED ORANGE BLUE"
+
+[ -e "/var/ipfire/vlan/settings" ] || {
+    boot_mesg "No settings file found!"
+    echo_error
+    exit 1
+}
+
+# Safely read the VLAN config file
+typeset -A config
+
+while read line
+do
+    if echo $line | grep -F = &>/dev/null
+    then
+        varname=$(echo "$line" | cut -d '=' -f 1)
+        config[$varname]=$(echo "$line" | cut -d '=' -f 2-)
+    fi
+done < /var/ipfire/vlan/settings
+
+case "${DO}" in
+	start)
+        modprobe 8021q
+        
+		for zone in ${ZONES}; do
+            interfaces="config[${zone}_INTERFACES]"
+            devname="${zone}_DEV"
+        
+            interfaces=${!interfaces}
+            devname=${!devname}
+
+            [ ${zone} == "RED" ] && [ ${RED_TYPE} == "PPPOE" ] && {
+                devname="ppp0"
+            }
+
+            [ -n "$devname" ] || continue
+
+            [ -e "/sys/class/net/$devname" ] || {
+                boot_mesg "Bridge $devname does not exist!"
+                echo_warning
+                continue
+            }
+            
+            for int in ${interfaces}; do
+                spl_int=(${int//./ })
+                phys=${spl_int[0]}
+                vlan=${spl_int[1]}
+                
+                [ -e "/sys/class/net/$phys" ] || {
+                    boot_mesg "Physical interface $phys does not exist!"
+                    echo_warning
+                    continue
+                }
+
+                boot_mesg "Bringing up physical interface $phys..."
+
+                ip link set $phys up
+
+                boot_mesg "Physical interface $phys is up."
+                echo_ok
+
+                [ -z "$vlan" ] || {
+                    [ -e "/sys/class/net/$int" ] && {
+                        boot_mesg "VLAN subinterface $int already exists, bringing it up anyway..."
+                    } || {
+                        boot_mesg "Creating VLAN with tag $vlan on interface $phys..."
+                        ip link add link $phys name $int type vlan id $vlan
+                    }
+
+                    ip link set $int up
+
+                    boot_mesg "VLAN subinterface $int is up."
+                    echo_ok
+                }
+                
+                boot_mesg "Adding interface $int to bridge $devname..."
+                ip link set $int master $devname
+
+                boot_mesg "Added interface $int to bridge $devname."
+                echo_ok
+            done
+        done
+
+        exit 0
+		;;
+
+	stop)
+		interfaces=$(ls "/sys/class/net/")
+
+        for int in ${interfaces}; do
+            case "$int" in
+                lo)
+                    continue
+                    ;;
+                tun*)
+                    continue
+                    ;;
+            esac
+
+            spl_int=(${int//./ })
+            vlan=${spl_int[1]}
+
+            [ -d "/sys/class/net/$int/bridge" ] && continue
+
+            boot_mesg "Detaching interface $int from bridge..."
+
+            ip link set $int nomaster
+
+            boot_mesg "Detached interface $int from bridge."
+            echo_ok
+
+            boot_mesg "Bringing down interface $int..."
+
+            ip link set $int down
+
+            boot_mesg "Interface $int is down."
+            echo_ok
+
+            [ -z "$vlan" ] || {
+                boot_mesg "Deleting VLAN subinterface $int..."
+
+                ip link delete $int
+
+                boot_mesg "Deleted VLAN subinterface $int."
+                echo_ok
+            }
+        done
+
+		exit 0
+		;;
+
+	*)
+		echo "Usage: ${0} {start|stop}"
+		exit 1
+		;;
+esac
